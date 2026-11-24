@@ -1,7 +1,9 @@
 import os
 import re
 import sys
+import hmac
 import json
+import hashlib
 import logging
 import threading
 from pathlib import Path
@@ -21,7 +23,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-REQUIRED_ENV_VARS = ["VERIFY_TOKEN", "ACCESS_TOKEN", "PHONE_NUMBER_ID", "ANTHROPIC_API_KEY", "ADMIN_NUMBER"]
+REQUIRED_ENV_VARS = ["VERIFY_TOKEN", "ACCESS_TOKEN", "PHONE_NUMBER_ID", "ANTHROPIC_API_KEY", "ADMIN_NUMBER", "APP_SECRET"]
 missing = [v for v in REQUIRED_ENV_VARS if not os.getenv(v)]
 if missing:
     sys.exit(f"Missing required env vars: {', '.join(missing)}")
@@ -31,6 +33,8 @@ ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 ADMIN_NUMBER = os.getenv("ADMIN_NUMBER")
+# Meta app secret: signs every webhook delivery (X-Hub-Signature-256).
+APP_SECRET = os.getenv("APP_SECRET")
 
 MAX_HISTORY = 20
 
@@ -308,9 +312,23 @@ def verify():
     return "Verification failed", 403
 
 
+def signature_ok(raw_body, header):
+    """True only if Meta signed these exact bytes with our app secret."""
+    if not header or not header.startswith("sha256="):
+        return False
+    expected = hmac.new(APP_SECRET.encode(), raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, header[len("sha256="):])
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.json
+    # Verify before parsing: the signature covers the raw bytes, and an unsigned
+    # request must not reach the message handling (admin commands, paid API calls).
+    raw = request.get_data()
+    if not signature_ok(raw, request.headers.get("X-Hub-Signature-256")):
+        logger.warning("Rejected webhook with a missing or bad signature")
+        return "Invalid signature", 403
+    data = request.get_json(silent=True) or {}
 
     try:
         entry = data.get("entry", [])
