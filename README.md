@@ -152,6 +152,7 @@ docker run -d --env-file .env \
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `VERIFY_TOKEN` | ✅ | — | Secret token for WhatsApp webhook verification |
+| `APP_SECRET` | ✅ | — | Meta app secret; webhook deliveries are rejected unless their `X-Hub-Signature-256` matches |
 | `ACCESS_TOKEN` | ✅ | — | WhatsApp Business API access token |
 | `PHONE_NUMBER_ID` | ✅ | — | Your WhatsApp Business phone number ID |
 | `ANTHROPIC_API_KEY` | ✅ | — | API key from [console.anthropic.com](https://console.anthropic.com) |
